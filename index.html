@@ -662,16 +662,17 @@
 
     <script>
       // ============================================
-      // STEP 1: Go to https://formspree.io
-      // STEP 2: Sign up / Log in
-      // STEP 3: Click "New Form"
-      // STEP 4: Copy your Form Endpoint URL
-      //         (looks like: https://formspree.io/f/xjvqknyz)
-      // STEP 5: Replace YOUR_FORM_ID below with your actual Form ID
+      // FORM SUBMISSION ENDPOINT
       // ============================================
-      // Example: If your endpoint is https://formspree.io/f/xjvqknyz
-      //          Then use: "https://formspree.io/f/xjvqknyz"
-      const FORMSPREE_ENDPOINT = "https://formspree.io/f/mankeldl";
+      // OPTION 1: Formspree (default)
+      //   Get your Form ID from: https://formspree.io
+      //   Format: "https://formspree.io/f/YOUR_FORM_ID"
+      //
+      // OPTION 2: Google Sheets (see GOOGLE_SHEETS_SETUP.md)
+      //   Deploy Google Apps Script as Web App
+      //   Format: "https://script.google.com/macros/s/YOUR_SCRIPT_ID/exec"
+      // ============================================
+      const FORMSPREE_ENDPOINT = "https://script.google.com/macros/s/AKfycbw3Ow8qs4JkkTQfe2KzZdCTbE5Y1Tn6V0Zb0IMJV85fyKvoW6zIq5S5Umke29NZvQcu/exec";
 
       // Helper function to encode paths with spaces for URLs
       function encodePath(path) {
@@ -849,7 +850,7 @@
 
         // Prepare form data
         const formData = {
-          "Best Student Leader 24/25": votes.leader,
+          "Best Student Leader KWUSO 24/25": votes.leader,
           "Best Captain Sports": votes.captain,
           "Best Sports Team": votes.team,
           "Best Influencer": votes.influencer,
@@ -859,7 +860,7 @@
         };
 
         try {
-          // Submit to Formspree
+          // Submit to Formspree or Google Sheets
           const response = await fetch(FORMSPREE_ENDPOINT, {
             method: "POST",
             headers: {
@@ -869,7 +870,25 @@
             body: JSON.stringify(formData)
           });
 
-          if (response.ok) {
+          // Handle response (works for both Formspree and Google Apps Script)
+          let responseData = null;
+          try {
+            responseData = await response.json();
+          } catch (e) {
+            // If response is not JSON, check if status is OK
+            if (response.ok) {
+              responseData = { status: 'success' };
+            }
+          }
+
+          // Check if submission was successful
+          const isSuccess = response.ok && (
+            !responseData || 
+            responseData.status === 'success' || 
+            responseData.ok === true
+          );
+
+          if (isSuccess) {
             markAsVoted();
             // Store votes in localStorage
             localStorage.setItem("kwuso_votes", JSON.stringify(votes));
@@ -880,7 +899,7 @@
             // Scroll to top to show thank you message
             window.scrollTo({ top: 0, behavior: 'smooth' });
           } else {
-            throw new Error("Submission failed");
+            throw new Error(responseData?.message || "Submission failed");
           }
         } catch (error) {
           showAlert("Error submitting vote. Please check your connection and try again.", "error");
