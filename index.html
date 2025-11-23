@@ -857,14 +857,21 @@
 
         try {
           // Submit to Google Sheets via Google Apps Script
+          // Note: Google Apps Script Web Apps need proper POST with JSON
           const response = await fetch(GOOGLE_SHEETS_ENDPOINT, {
             method: "POST",
+            mode: "cors",
+            redirect: "follow",
             headers: {
               "Content-Type": "application/json",
               "Accept": "application/json"
             },
             body: JSON.stringify(formData)
           });
+          
+          // Log for debugging
+          console.log("Response status:", response.status);
+          console.log("Response ok:", response.ok);
 
           // Handle response from Google Apps Script
           let responseData = null;
