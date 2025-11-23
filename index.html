@@ -657,22 +657,18 @@
     </div>
 
     <footer class="footer">
-      Designed & Developed by JMG Powered by <a href="https://formspree.io" target="_blank">formspree.io</a> • © 2025 All Rights Reserved.
+      Designed & Developed by JMG • © 2025 All Rights Reserved.
     </footer>
 
     <script>
       // ============================================
-      // FORM SUBMISSION ENDPOINT
+      // FORM SUBMISSION ENDPOINT - GOOGLE SHEETS
       // ============================================
-      // OPTION 1: Formspree (default)
-      //   Get your Form ID from: https://formspree.io
-      //   Format: "https://formspree.io/f/YOUR_FORM_ID"
-      //
-      // OPTION 2: Google Sheets (see GOOGLE_SHEETS_SETUP.md)
-      //   Deploy Google Apps Script as Web App
-      //   Format: "https://script.google.com/macros/s/YOUR_SCRIPT_ID/exec"
+      // This endpoint sends submissions directly to Google Sheets via Google Apps Script
+      // Format: "https://script.google.com/macros/s/YOUR_SCRIPT_ID/exec"
+      // See GOOGLE_SHEETS_SETUP.md for setup instructions
       // ============================================
-      const FORMSPREE_ENDPOINT = "https://script.google.com/macros/s/AKfycbzGC9Ok0vKvKRErETdJVIT50HZCy0YwQa3Ap7UhF2J2-pvP-_4CCGmsAuzvyklVP6XF/exec";
+      const GOOGLE_SHEETS_ENDPOINT = "https://script.google.com/macros/s/AKfycbzGC9Ok0vKvKRErETdJVIT50HZCy0YwQa3Ap7UhF2J2-pvP-_4CCGmsAuzvyklVP6XF/exec";
 
       // Helper function to encode paths with spaces for URLs
       function encodePath(path) {
@@ -860,8 +856,8 @@
         };
 
         try {
-          // Submit to Formspree or Google Sheets
-          const response = await fetch(FORMSPREE_ENDPOINT, {
+          // Submit to Google Sheets via Google Apps Script
+          const response = await fetch(GOOGLE_SHEETS_ENDPOINT, {
             method: "POST",
             headers: {
               "Content-Type": "application/json",
@@ -870,7 +866,7 @@
             body: JSON.stringify(formData)
           });
 
-          // Handle response (works for both Formspree and Google Apps Script)
+          // Handle response from Google Apps Script
           let responseData = null;
           let responseText = '';
           try {
@@ -945,7 +941,7 @@
           
           // Log error to console for debugging
           console.error("Vote submission error:", error);
-          console.error("Endpoint:", FORMSPREE_ENDPOINT);
+          console.error("Endpoint:", GOOGLE_SHEETS_ENDPOINT);
           console.error("Form data:", formData);
         }
       }
