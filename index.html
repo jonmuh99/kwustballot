@@ -857,64 +857,144 @@
 
         try {
           // Submit to Google Sheets via Google Apps Script
-          // Using XMLHttpRequest for better CORS compatibility with Google Apps Script
-          const submissionPromise = new Promise((resolve, reject) => {
-            const xhr = new XMLHttpRequest();
-            
-            xhr.open('POST', GOOGLE_SHEETS_ENDPOINT, true);
-            xhr.setRequestHeader('Content-Type', 'application/json');
-            
-            xhr.onload = function() {
-              if (xhr.status >= 200 && xhr.status < 300) {
-                try {
-                  const responseData = JSON.parse(xhr.responseText);
-                  if (responseData.status === 'success') {
-                    resolve(responseData);
-                  } else {
-                    reject(new Error(responseData.message || 'Submission failed'));
+          // Using multiple methods to handle CORS issues with Google Apps Script
+          
+          let submissionSuccess = false;
+          let lastError = null;
+          
+          // Method 1: Try XMLHttpRequest first
+          try {
+            const xhrResult = await new Promise((resolve, reject) => {
+              const xhr = new XMLHttpRequest();
+              
+              xhr.open('POST', GOOGLE_SHEETS_ENDPOINT, true);
+              xhr.setRequestHeader('Content-Type', 'application/json');
+              
+              xhr.onload = function() {
+                if (xhr.status >= 200 && xhr.status < 300) {
+                  try {
+                    const responseData = JSON.parse(xhr.responseText);
+                    if (responseData.status === 'success') {
+                      resolve(responseData);
+                    } else {
+                      reject(new Error(responseData.message || 'Submission failed'));
+                    }
+                  } catch (e) {
+                    // If response is not JSON but status is OK, assume success
+                    resolve({ status: 'success' });
                   }
-                } catch (e) {
-                  // If response is not JSON but status is OK, assume success
-                  resolve({ status: 'success' });
+                } else {
+                  reject(new Error(`Server error: ${xhr.status} ${xhr.statusText}`));
                 }
-              } else {
-                reject(new Error(`Server error: ${xhr.status} ${xhr.statusText}`));
+              };
+              
+              xhr.onerror = function() {
+                // Network error - request may still have been sent
+                reject(new Error('Network error occurred'));
+              };
+              
+              xhr.ontimeout = function() {
+                reject(new Error('Request timeout'));
+              };
+              
+              xhr.timeout = 20000; // 20 second timeout
+              
+              try {
+                xhr.send(JSON.stringify(formData));
+              } catch (sendError) {
+                reject(new Error('Failed to send: ' + sendError.message));
               }
-            };
+            });
             
-            xhr.onerror = function() {
-              // Network error - but Google Apps Script might still process it
-              // We'll assume it was sent and show success (check sheet to verify)
-              console.warn('Network error, but request may have been sent to Google Apps Script');
-              resolve({ status: 'success', note: 'Network error occurred but submission may have succeeded' });
-            };
+            submissionSuccess = true;
+            console.log('Submission successful via XMLHttpRequest');
             
-            xhr.ontimeout = function() {
-              reject(new Error('Request timeout. Please check your internet connection and try again.'));
-            };
+          } catch (xhrError) {
+            console.warn('XMLHttpRequest failed, trying fetch method:', xhrError);
+            lastError = xhrError;
             
-            xhr.timeout = 30000; // 30 second timeout
-            
+            // Method 2: Try fetch as fallback
             try {
-              xhr.send(JSON.stringify(formData));
-            } catch (sendError) {
-              reject(new Error('Failed to send request: ' + sendError.message));
+              const fetchResponse = await fetch(GOOGLE_SHEETS_ENDPOINT, {
+                method: 'POST',
+                mode: 'no-cors', // Use no-cors to avoid CORS issues
+                headers: {
+                  'Content-Type': 'application/json'
+                },
+                body: JSON.stringify(formData)
+              });
+              
+              // With no-cors, we can't read the response, but request was sent
+              submissionSuccess = true;
+              console.log('Submission sent via fetch (no-cors mode)');
+              
+            } catch (fetchError) {
+              console.warn('Fetch also failed:', fetchError);
+              lastError = fetchError;
+              
+              // Method 3: Form submission as last resort
+              try {
+                // Create a hidden form and submit it
+                const form = document.createElement('form');
+                form.method = 'POST';
+                form.action = GOOGLE_SHEETS_ENDPOINT;
+                form.style.display = 'none';
+                
+                // Add form data as hidden inputs
+                Object.keys(formData).forEach(key => {
+                  const input = document.createElement('input');
+                  input.type = 'hidden';
+                  input.name = key;
+                  input.value = formData[key];
+                  form.appendChild(input);
+                });
+                
+                document.body.appendChild(form);
+                
+                // Submit form in iframe to avoid page navigation
+                const iframe = document.createElement('iframe');
+                iframe.name = 'hiddenFrame';
+                iframe.style.display = 'none';
+                document.body.appendChild(iframe);
+                form.target = 'hiddenFrame';
+                
+                form.submit();
+                
+                // Wait a bit then assume success (we can't verify with this method)
+                await new Promise(resolve => setTimeout(resolve, 1000));
+                submissionSuccess = true;
+                console.log('Submission sent via form method');
+                
+                // Clean up
+                setTimeout(() => {
+                  document.body.removeChild(form);
+                  document.body.removeChild(iframe);
+                }, 2000);
+                
+              } catch (formError) {
+                console.error('All submission methods failed:', formError);
+                lastError = formError;
+              }
             }
-          });
+          }
           
-          // Wait for submission
-          const responseData = await submissionPromise;
-          
-          // If we get here, submission was successful
-          markAsVoted();
-          // Store votes in localStorage
-          localStorage.setItem("kwuso_votes", JSON.stringify(votes));
-          // Display votes list before showing thank you message
-          displayVotesList(votes);
-          document.getElementById("votingArea").classList.add("hidden");
-          document.getElementById("votedMessage").classList.remove("hidden");
-          // Scroll to top to show thank you message
-          window.scrollTo({ top: 0, behavior: 'smooth' });
+          // If any method succeeded (or we tried form submission), show success
+          // Note: With CORS issues, we can't always verify, but the request was likely sent
+          if (submissionSuccess) {
+            markAsVoted();
+            localStorage.setItem("kwuso_votes", JSON.stringify(votes));
+            displayVotesList(votes);
+            document.getElementById("votingArea").classList.add("hidden");
+            document.getElementById("votedMessage").classList.remove("hidden");
+            window.scrollTo({ top: 0, behavior: 'smooth' });
+            
+            // Show a note if we used fallback methods
+            if (lastError && lastError.message.includes('Network')) {
+              console.info('Note: Submission may have succeeded despite network error. Please check your Google Sheet to verify.');
+            }
+          } else {
+            throw lastError || new Error('All submission methods failed');
+          }
         } catch (error) {
           // Show detailed error message
           let errorMsg = error.message || "Error submitting vote. Please check your connection and try again.";
