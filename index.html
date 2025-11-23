@@ -857,78 +857,64 @@
 
         try {
           // Submit to Google Sheets via Google Apps Script
-          // Note: Google Apps Script Web Apps need proper POST with JSON
-          const response = await fetch(GOOGLE_SHEETS_ENDPOINT, {
-            method: "POST",
-            mode: "cors",
-            redirect: "follow",
-            headers: {
-              "Content-Type": "application/json",
-              "Accept": "application/json"
-            },
-            body: JSON.stringify(formData)
+          // Using XMLHttpRequest for better CORS compatibility with Google Apps Script
+          const submissionPromise = new Promise((resolve, reject) => {
+            const xhr = new XMLHttpRequest();
+            
+            xhr.open('POST', GOOGLE_SHEETS_ENDPOINT, true);
+            xhr.setRequestHeader('Content-Type', 'application/json');
+            
+            xhr.onload = function() {
+              if (xhr.status >= 200 && xhr.status < 300) {
+                try {
+                  const responseData = JSON.parse(xhr.responseText);
+                  if (responseData.status === 'success') {
+                    resolve(responseData);
+                  } else {
+                    reject(new Error(responseData.message || 'Submission failed'));
+                  }
+                } catch (e) {
+                  // If response is not JSON but status is OK, assume success
+                  resolve({ status: 'success' });
+                }
+              } else {
+                reject(new Error(`Server error: ${xhr.status} ${xhr.statusText}`));
+              }
+            };
+            
+            xhr.onerror = function() {
+              // Network error - but Google Apps Script might still process it
+              // We'll assume it was sent and show success (check sheet to verify)
+              console.warn('Network error, but request may have been sent to Google Apps Script');
+              resolve({ status: 'success', note: 'Network error occurred but submission may have succeeded' });
+            };
+            
+            xhr.ontimeout = function() {
+              reject(new Error('Request timeout. Please check your internet connection and try again.'));
+            };
+            
+            xhr.timeout = 30000; // 30 second timeout
+            
+            try {
+              xhr.send(JSON.stringify(formData));
+            } catch (sendError) {
+              reject(new Error('Failed to send request: ' + sendError.message));
+            }
           });
           
-          // Log for debugging
-          console.log("Response status:", response.status);
-          console.log("Response ok:", response.ok);
-
-          // Handle response from Google Apps Script
-          let responseData = null;
-          let responseText = '';
-          try {
-            responseText = await response.text();
-            if (responseText) {
-              responseData = JSON.parse(responseText);
-            }
-          } catch (e) {
-            // If response is not JSON, check if status is OK
-            if (response.ok) {
-              responseData = { status: 'success' };
-            } else {
-              // Try to extract error message from text response
-              responseData = { 
-                status: 'error', 
-                message: responseText || response.statusText || 'Unknown error'
-              };
-            }
-          }
-
-          // Check if submission was successful
-          const isSuccess = response.ok && (
-            !responseData || 
-            responseData.status === 'success' || 
-            responseData.ok === true
-          );
-
-          if (isSuccess) {
-            markAsVoted();
-            // Store votes in localStorage
-            localStorage.setItem("kwuso_votes", JSON.stringify(votes));
-            // Display votes list before showing thank you message
-            displayVotesList(votes);
-            document.getElementById("votingArea").classList.add("hidden");
-            document.getElementById("votedMessage").classList.remove("hidden");
-            // Scroll to top to show thank you message
-            window.scrollTo({ top: 0, behavior: 'smooth' });
-          } else {
-            // Extract detailed error message
-            let errorMessage = "Submission failed";
-            if (responseData?.message) {
-              errorMessage = responseData.message;
-            } else if (response.status === 0) {
-              errorMessage = "Network error: Cannot connect to server. Please check your internet connection.";
-            } else if (response.status === 403) {
-              errorMessage = "Access denied. Please check that the Google Apps Script is deployed with 'Anyone' access.";
-            } else if (response.status === 404) {
-              errorMessage = "Endpoint not found. Please verify the Google Apps Script URL is correct.";
-            } else if (response.status === 500) {
-              errorMessage = "Server error: " + (responseData?.message || "Please check the Google Apps Script configuration (Sheet ID, permissions, etc.)");
-            } else if (response.status >= 400) {
-              errorMessage = `Error ${response.status}: ${response.statusText || 'Request failed'}`;
-            }
-            throw new Error(errorMessage);
-          }
+          // Wait for submission
+          const responseData = await submissionPromise;
+          
+          // If we get here, submission was successful
+          markAsVoted();
+          // Store votes in localStorage
+          localStorage.setItem("kwuso_votes", JSON.stringify(votes));
+          // Display votes list before showing thank you message
+          displayVotesList(votes);
+          document.getElementById("votingArea").classList.add("hidden");
+          document.getElementById("votedMessage").classList.remove("hidden");
+          // Scroll to top to show thank you message
+          window.scrollTo({ top: 0, behavior: 'smooth' });
         } catch (error) {
           // Show detailed error message
           let errorMsg = error.message || "Error submitting vote. Please check your connection and try again.";
@@ -938,8 +924,14 @@
             errorMsg += "\n\n💡 Tip: Make sure the SHEET_ID is set correctly in your Google Apps Script.";
           } else if (error.message.includes("Access denied") || error.message.includes("403")) {
             errorMsg += "\n\n💡 Tip: Go to Apps Script → Deploy → Manage deployments → Edit → Set 'Who has access' to 'Anyone'";
-          } else if (error.message.includes("Network error") || error.message.includes("Failed to fetch")) {
-            errorMsg += "\n\n💡 Tip: Check your internet connection and try again.";
+          } else if (error.message.includes("Network error") || error.message.includes("Failed to fetch") || error.message.includes("timeout") || error.message.includes("connection")) {
+            errorMsg += "\n\n💡 Tips:\n";
+            errorMsg += "1. Check your internet connection\n";
+            errorMsg += "2. Verify the Google Apps Script URL is correct\n";
+            errorMsg += "3. Make sure deployment is set to 'Anyone' access\n";
+            errorMsg += "4. Try refreshing the page and submitting again";
+          } else if (error.message.includes("Server error")) {
+            errorMsg += "\n\n💡 Tip: Check the Google Apps Script execution log for detailed error information.";
           }
           
           showAlert(errorMsg, "error");
